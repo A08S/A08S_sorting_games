@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>並べ替えクイズ</title>
+    <style>
+        .quiz-container { margin: 20px; }
+        .word { 
+            display: inline-block; 
+            padding: 10px; 
+            margin: 5px; 
+            background: #f0f0f0; 
+            cursor: move; 
+            user-select: none; 
+        }
+        .correct { color: blue; }
+        #result { margin-top: 10px; font-weight: bold; }
+        .drag-over { background: #d0d0d0; }
+    </style>
+</head>
+<body>
+    <h2>並べ替えゲーム/Sorting Game</h2>
+    <p>「ファイルを選択」からcsvファイルを読み込んで出題ボタンを押すと並べ替えゲームができるよ！</p>
+    <div class="quiz-container">
+        <div>
+            <input type="file" id="csvFile" accept=".csv" onchange="loadFile()">
+            <button disabled id="specificBtn" onclick="loadSpecificQuiz()">指定して出題</button>
+            <input type="number" id="lineInput" min="1" placeholder="行番号を入力">
+            <button disabled id="randomBtn" onclick="loadRandomQuiz()">ランダムに出題</button>
+            <button disabled id="resetBtn" onclick="resetQuiz()">問題をリセット</button>
+        </div>
+        <div id="hint" style="margin-top: 10px;"></div>
+        <div id="quiz" style="margin-top: 10px;"></div>
+        <button disabled id="checkBtn" onclick="checkAnswer()" style="margin-top: 10px;">回答する</button>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        let csvData = [];
+        let originalOrder = [];
+        let currentQuiz = [];
+        let currentHint = "";
+
+        function loadFile() {
+            const fileInput = document.getElementById('csvFile');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                parseCSV(e.target.result);
+                enableButtons();
+            };
+            reader.readAsText(file);
+        }
+
+        function parseCSV(content) {
+            const lines = content.split('\n').map(line => line.trim()).filter(line => line);
+            csvData = [];
+            for (let i = 0; i < lines.length; i += 2) {
+                if (i + 1 < lines.length) {
+                    const quizLine = parseCSVLine(lines[i]);
+                    const hintLine = parseCSVLine(lines[i + 1]);
+                    if (quizLine.length && hintLine.length) {
+                        const quizWords = combineArticles(quizLine);
+                        const hintWords = combineArticles(hintLine);
+                        csvData.push({ quiz: quizWords.join(' '), hint: hintWords.join(' ') });
+                    }
+                }
+            }
+        }
+
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let char of line) {
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    if (current) result.push(current);
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            if (current) result.push(current);
+            return result.filter(Boolean);
+        }
+
+        function combineArticles(words) {
+            const articles = ['a', 'an', 'the', 'this', 'those', 'these'];
+            const result = [];
+            for (let i = 0; i < words.length; i++) {
+                if (articles.includes(words[i]) && i + 1 < words.length) {
+                    result.push(`${words[i]} ${words[i + 1]}`);
+                    i++;
+                } else {
+                    result.push(words[i]);
+                }
+            }
+            return result;
+        }
+
+        function enableButtons() {
+            document.getElementById('specificBtn').disabled = false;
+            document.getElementById('randomBtn').disabled = false;
+            document.getElementById('resetBtn').disabled = false;
+            document.getElementById('checkBtn').disabled = false;
+        }
+
+        function loadSpecificQuiz() {
+            const input = document.getElementById('lineInput').value;
+            const a = parseInt(input);
+            if (!a || a <= 0) {
+                alert("正の整数を入力してください");
+                return;
+            }
+            const x = a * 2 - 1;
+            if (x > csvData.length * 2 || x < 1) {
+                alert("指定した行が存在しません");
+                return;
+            }
+            const index = Math.floor((x - 1) / 2);
+            loadQuiz(index);
+        }
+
+        function loadRandomQuiz() {
+            const index = Math.floor(Math.random() * csvData.length);
+            loadQuiz(index);
+        }
+
+        function loadQuiz(index) {
+            const data = csvData[index];
+            currentHint = data.hint;
+            currentQuiz = data.quiz.split(' ');
+            originalOrder = [...currentQuiz];
+            currentQuiz.sort(() => Math.random() - 0.5); // ランダムに並べ替え
+            displayQuiz();
+            document.getElementById('result').textContent = '';
+        }
+
+        function displayQuiz() {
+            document.getElementById('hint').textContent = `ヒント: ${currentHint}`;
+            const quizDiv = document.getElementById('quiz');
+            quizDiv.innerHTML = '';
+            currentQuiz.forEach((word, index) => {
+                const span = document.createElement('span');
+                span.textContent = word;
+                span.className = 'word';
+                span.draggable = true;
+                span.dataset.index = index;
+                span.addEventListener('dragstart', dragStart);
+                span.addEventListener('dragover', dragOver);
+                span.addEventListener('dragenter', dragEnter);
+                span.addEventListener('dragleave', dragLeave);
+                span.addEventListener('drop', drop);
+                span.addEventListener('dragend', dragEnd);
+                quizDiv.appendChild(span);
+            });
+        }
+
+        let draggedIndex = null;
+
+        function dragStart(e) {
+            draggedIndex = parseInt(e.target.dataset.index);
+            e.dataTransfer.setData('text/plain', draggedIndex);
+        }
+
+        function dragOver(e) {
+            e.preventDefault();
+        }
+
+        function dragEnter(e) {
+            e.preventDefault();
+            e.target.classList.add('drag-over');
+        }
+
+        function dragLeave(e) {
+            e.target.classList.remove('drag-over');
+        }
+
+        function drop(e) {
+            e.preventDefault();
+            const targetIndex = parseInt(e.target.dataset.index);
+            e.target.classList.remove('drag-over');
+            if (draggedIndex !== targetIndex) {
+                const draggedWord = currentQuiz[draggedIndex];
+                currentQuiz.splice(draggedIndex, 1);
+                currentQuiz.splice(targetIndex, 0, draggedWord);
+                displayQuiz();
+            }
+        }
+
+        function dragEnd(e) {
+            draggedIndex = null;
+        }
+
+        function checkAnswer() {
+            const resultDiv = document.getElementById('result');
+            const isCorrect = currentQuiz.join(' ') === originalOrder.join(' ');
+            if (isCorrect) {
+                resultDiv.textContent = '正解！';
+                document.querySelectorAll('.word').forEach(word => word.classList.add('correct'));
+            } else {
+                resultDiv.textContent = '不正解…';
+                currentQuiz.forEach((word, i) => {
+                    if (word === originalOrder[i]) {
+                        document.querySelectorAll('.word')[i].classList.add('correct');
+                    }
+                });
+            }
+        }
+
+        function resetQuiz() {
+            if (currentQuiz.length > 0) {
+                currentQuiz = [...originalOrder];
+                currentQuiz.sort(() => Math.random() - 0.5);
+                displayQuiz();
+                document.getElementById('result').textContent = '';
+                document.querySelectorAll('.word').forEach(word => word.classList.remove('correct'));
+            }
+        }
+    </script>
+</body>
+</html>
